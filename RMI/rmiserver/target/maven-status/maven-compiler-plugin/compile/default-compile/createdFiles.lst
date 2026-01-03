@@ -1,0 +1,5 @@
+rmiserver\Serverrmi.class
+rmiserver\Calc.class
+rmiserver\FormRMIServer.class
+remoteapp\PhanSo.class
+remoteapp\InterfaceCalc.class

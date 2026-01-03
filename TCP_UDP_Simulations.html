@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mô phỏng TCP và UDP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+        }
+        .packet {
+            position: absolute;
+            padding: 4px 8px;
+            border-radius: 8px;
+            color: white;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+            transition: all 1s ease-in-out;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+        .packet-tcp { background-color: #2563eb; }
+        .packet-ack { background-color: #16a34a; }
+        .packet-syn { background-color: #f59e0b; }
+        .packet-fin { background-color: #dc2626; }
+        .packet-udp { background-color: #8b5cf6; }
+        .packet-lost {
+            opacity: 0;
+            transform: translateX(-50%) translateY(50px) scale(0.5);
+        }
+        .log-entry {
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto bg-white rounded-2xl shadow-lg p-6">
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">Mô phỏng Giao thức TCP và UDP</h1>
+            <p class="text-gray-600 mt-2">Một minh họa trực quan về sự khác biệt giữa TCP (Giao thức điều khiển truyền vận) và UDP (Giao thức Dữ liệu người dùng).</p>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="flex flex-wrap justify-center items-center gap-4 mb-8 p-4 bg-gray-50 rounded-lg border">
+            <div class="flex items-center gap-2">
+                <label for="protocol-selector" class="font-medium text-gray-700">Chọn giao thức:</label>
+                <select id="protocol-selector" class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <option value="tcp" selected>TCP</option>
+                    <option value="udp">UDP</option>
+                </select>
+            </div>
+            <button id="start-btn" class="px-5 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition duration-300">Bắt đầu</button>
+            <button id="reset-btn" class="px-5 py-2 bg-gray-600 text-white font-semibold rounded-lg shadow-md hover:bg-gray-700 transition duration-300">Thiết lập lại</button>
+            <button id="loss-btn" class="px-5 py-2 bg-red-500 text-white font-semibold rounded-lg shadow-md hover:bg-red-600 transition duration-300">Mô phỏng Mất gói (TCP)</button>
+             <div class="flex items-center gap-2">
+                <label for="speed-slider" class="font-medium text-gray-700">Tốc độ:</label>
+                <input type="range" id="speed-slider" min="0.5" max="3" value="1.5" step="0.1" class="w-32">
+            </div>
+        </div>
+
+        <!-- Visualization Area -->
+        <div class="relative h-96 border-2 border-dashed border-gray-300 rounded-lg p-4">
+            <div class="flex justify-between h-full">
+                <div id="sender" class="w-1/4 bg-blue-100 rounded-lg p-4 flex flex-col items-center">
+                    <h2 class="font-bold text-lg text-blue-800">Bên Gửi (Client)</h2>
+                    <div id="sender-packets" class="mt-4 space-y-2 w-full text-center"></div>
+                </div>
+                <div id="receiver" class="w-1/4 bg-green-100 rounded-lg p-4 flex flex-col items-center">
+                    <h2 class="font-bold text-lg text-green-800">Bên Nhận (Server)</h2>
+                    <div id="receiver-packets" class="mt-4 space-y-2 w-full text-center"></div>
+                </div>
+            </div>
+            <div id="network-lane" class="absolute top-0 left-0 w-full h-full"></div>
+        </div>
+        
+        <!-- Log Area -->
+        <div class="mt-6">
+            <h3 class="font-bold text-lg text-gray-700 mb-2">Nhật ký sự kiện:</h3>
+            <div id="log-area" class="h-48 bg-gray-900 text-white font-mono text-sm rounded-lg p-4 overflow-y-auto space-y-1">
+            </div>
+        </div>
+
+        <!-- Explanation Section -->
+        <div class="mt-8 pt-6 border-t">
+            <h2 class="text-2xl font-bold text-gray-800 text-center mb-4">So sánh TCP và UDP</h2>
+            <div class="grid md:grid-cols-2 gap-8">
+                <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                    <h3 class="text-xl font-semibold text-blue-700">TCP (Transmission Control Protocol)</h3>
+                    <ul class="mt-4 list-disc list-inside space-y-2 text-gray-600">
+                        <li><strong class="text-gray-800">Hướng kết nối (Connection-Oriented):</strong> Yêu cầu "bắt tay ba bước" (3-way handshake) để thiết lập kết nối trước khi truyền dữ liệu.</li>
+                        <li><strong class="text-gray-800">Đáng tin cậy (Reliable):</strong> Đảm bảo mọi gói tin đều đến đích đúng thứ tự thông qua cơ chế gửi lại và báo nhận (ACK).</li>
+                        <li><strong class="text-gray-800">Kiểm soát luồng (Flow Control):</strong> Quản lý tốc độ truyền để tránh làm quá tải bên nhận.</li>
+                        <li><strong class="text-gray-800">Chậm hơn:</strong> Do có nhiều cơ chế phức tạp để đảm bảo độ tin cậy.</li>
+                        <li><strong class="text-gray-800">Ví dụ:</strong> duyệt web (HTTP/S), email (SMTP), truyền file (FTP).</li>
+                    </ul>
+                </div>
+                <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                    <h3 class="text-xl font-semibold text-purple-700">UDP (User Datagram Protocol)</h3>
+                     <ul class="mt-4 list-disc list-inside space-y-2 text-gray-600">
+                        <li><strong class="text-gray-800">Không kết nối (Connectionless):</strong> Gửi dữ liệu (datagram) ngay lập tức mà không cần thiết lập kết nối.</li>
+                        <li><strong class="text-gray-800">Không đáng tin cậy (Unreliable):</strong> Không đảm bảo gói tin sẽ đến, không đảm bảo đúng thứ tự và không kiểm tra lỗi.</li>
+                        <li><strong class="text-gray-800">"Gửi và quên" (Fire and Forget):</strong> Không có cơ chế báo nhận hay gửi lại.</li>
+                        <li><strong class="text-gray-800">Nhanh và nhẹ:</strong> Overhead thấp, phù hợp cho các ứng dụng yêu cầu tốc độ và chấp nhận mất mát dữ liệu nhỏ.</li>
+                        <li><strong class="text-gray-800">Ví dụ:</strong> streaming video/audio, game online, DNS.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+const protocolSelector = document.getElementById('protocol-selector');
+const startBtn = document.getElementById('start-btn');
+const resetBtn = document.getElementById('reset-btn');
+const lossBtn = document.getElementById('loss-btn');
+const speedSlider = document.getElementById('speed-slider');
+const networkLane = document.getElementById('network-lane');
+const senderPackets = document.getElementById('sender-packets');
+const receiverPackets = document.getElementById('receiver-packets');
+const logArea = document.getElementById('log-area');
+const senderDiv = document.getElementById('sender');
+const receiverDiv = document.getElementById('receiver');
+
+let isSimulating = false;
+let packetCounter = 0;
+let simulationTimeout;
+let simulateLoss = false;
+let speed = 1.5;
+
+function log(message, type = 'info') {
+    const entry = document.createElement('p');
+    const time = new Date().toLocaleTimeString();
+    entry.innerHTML = `<span class="text-gray-500">${time}:</span> <span class="${type === 'error' ? 'text-red-400' : 'text-green-400'}">${message}</span>`;
+    logArea.appendChild(entry);
+    logArea.scrollTop = logArea.scrollHeight;
+}
+
+function resetSimulation() {
+    clearTimeout(simulationTimeout);
+    isSimulating = false;
+    packetCounter = 0;
+    simulateLoss = false;
+    networkLane.innerHTML = '';
+    senderPackets.innerHTML = '';
+    receiverPackets.innerHTML = '';
+    logArea.innerHTML = '';
+    startBtn.disabled = false;
+    protocolSelector.disabled = false;
+    log('Mô phỏng đã được thiết lập lại.');
+}
+
+function createPacket(text, type, id) {
+    const packet = document.createElement('div');
+    packet.id = `packet-${id}`;
+    packet.className = `packet packet-${type}`;
+    packet.innerText = text;
+    return packet;
+}
+
+async function animatePacket(packet, startEl, endEl) { // Đã sửa: Xóa tham số isReturning
+    return new Promise(resolve => {
+        const duration = 2000 / speed;
+        packet.style.transition = `all ${duration / 1000}s ease-in-out`;
+        
+        const startRect = startEl.getBoundingClientRect();
+        const endRect = endEl.getBoundingClientRect();
+        const networkRect = networkLane.getBoundingClientRect();
+
+        // Đã sửa: Logic tính toán vị trí được đơn giản hóa và sửa lỗi
+        const startX = startRect.left - networkRect.left + startRect.width / 2;
+        const endX = endRect.left - networkRect.left + endRect.width / 2;
+
+        packet.style.top = `${startRect.height / 2}px`;
+        packet.style.left = `${startX}px`;
+        networkLane.appendChild(packet);
+
+        // Force reflow
+        void packet.offsetWidth;
+
+        packet.style.left = `${endX}px`;
+
+        simulationTimeout = setTimeout(() => {
+            resolve();
+        }, duration);
+    });
+}
+
+async function startTCPSimulation() {
+    isSimulating = true;
+    startBtn.disabled = true;
+    protocolSelector.disabled = true;
+
+    // 1. 3-Way Handshake
+    log('Bắt đầu bắt tay ba bước (3-way handshake)...');
+    
+    // SYN
+    log('[GỬI] Gói tin SYN (Seq=x)');
+    const synPacket = createPacket('SYN', 'syn', 'syn');
+    await animatePacket(synPacket, senderDiv, receiverDiv);
+    log('[NHẬN] Gói tin SYN (Seq=x)');
+    networkLane.innerHTML = '';
+    
+    // SYN-ACK
+    log('[GỬI] Gói tin SYN-ACK (Seq=y, Ack=x+1)');
+    const synAckPacket = createPacket('SYN-ACK', 'ack', 'syn-ack');
+    await animatePacket(synAckPacket, receiverDiv, senderDiv);
+    log('[NHẬN] Gói tin SYN-ACK (Seq=y, Ack=x+1)');
+    networkLane.innerHTML = '';
+
+    // ACK
+    log('[GỬI] Gói tin ACK (Ack=y+1)');
+    const ackPacket = createPacket('ACK', 'ack', 'ack-handshake');
+    await animatePacket(ackPacket, senderDiv, receiverDiv);
+    log('[NHẬN] Gói tin ACK (Ack=y+1)');
+    networkLane.innerHTML = '';
+    log('>>> Kết nối TCP đã được thiết lập thành công!');
+
+    // 2. Data Transfer
+    for (let i = 1; i <= 4; i++) {
+        if (!isSimulating) return;
+        
+        let ackReceived = false;
+        let attempt = 1;
+        
+        while(!ackReceived && attempt <= 2) {
+             if (!isSimulating) return;
+
+            const packetId = `data-${i}-att-${attempt}`;
+            const ackId = `ack-${i}-att-${attempt}`;
+            
+            // Send data packet
+            const dataPacket = createPacket(`DATA ${i}`, 'tcp', packetId);
+            const senderPacketUI = document.createElement('div');
+            senderPacketUI.className = 'p-2 bg-blue-200 text-blue-800 rounded text-sm';
+            senderPacketUI.innerText = `Chờ ACK cho Gói ${i}`;
+            senderPackets.appendChild(senderPacketUI);
+
+            log(`[GỬI] Gói tin DATA ${i} (lần ${attempt})`);
+            await animatePacket(dataPacket, senderDiv, receiverDiv);
+            
+            // Check for simulated loss
+            if (simulateLoss && attempt === 1) {
+                log(`!!! Gói tin DATA ${i} đã bị mất trên đường truyền!`, 'error');
+                simulateLoss = false;
+                networkLane.innerHTML = '';
+                log(`Bên gửi không nhận được ACK, đang chờ hết thời gian...`, 'error');
+                await new Promise(r => setTimeout(r, 2500 / speed));
+                log(`Hết thời gian chờ (Timeout). Gửi lại gói tin ${i}...`, 'error');
+                attempt++;
+                senderPacketUI.innerText = `Gửi lại Gói ${i}`;
+                continue;
+            }
+
+            log(`[NHẬN] Gói tin DATA ${i}`);
+            networkLane.innerHTML = '';
+            const receiverPacketUI = document.createElement('div');
+            receiverPacketUI.className = 'p-2 bg-green-200 text-green-800 rounded text-sm';
+            receiverPacketUI.innerText = `Đã nhận Gói ${i}`;
+            receiverPackets.appendChild(receiverPacketUI);
+
+            // Send ACK
+            log(`[GỬI] Gói tin ACK ${i}`);
+            const dataAckPacket = createPacket(`ACK ${i}`, 'ack', ackId);
+            await animatePacket(dataAckPacket, receiverDiv, senderDiv);
+            log(`[NHẬN] Gói tin ACK ${i}`);
+            networkLane.innerHTML = '';
+            
+            senderPacketUI.className = 'p-2 bg-green-200 text-green-800 rounded text-sm';
+            senderPacketUI.innerText = `Đã nhận ACK ${i}`;
+            ackReceived = true;
+        }
+    }
+
+    // 3. Connection Teardown
+    log('Tất cả dữ liệu đã được truyền. Bắt đầu đóng kết nối...');
+    // FIN
+    log('[GỬI] Gói tin FIN');
+    const finPacket = createPacket('FIN', 'fin', 'fin');
+    await animatePacket(finPacket, senderDiv, receiverDiv);
+    log('[NHẬN] Gói tin FIN');
+    networkLane.innerHTML = '';
+
+    // FIN-ACK
+    log('[GỬI] Gói tin FIN-ACK');
+    const finAckPacket = createPacket('FIN-ACK', 'ack', 'fin-ack');
+    await animatePacket(finAckPacket, receiverDiv, senderDiv);
+    log('[NHẬN] Gói tin FIN-ACK');
+    networkLane.innerHTML = '';
+    
+    log('>>> Kết nối TCP đã đóng.');
+    isSimulating = false;
+    startBtn.disabled = false;
+    protocolSelector.disabled = false;
+}
+
+async function startUDPSimulation() {
+    isSimulating = true;
+    startBtn.disabled = true;
+    protocolSelector.disabled = true;
+
+    log('Bắt đầu gửi dữ liệu bằng UDP (không cần handshake).');
+
+    for (let i = 1; i <= 5; i++) {
+        if (!isSimulating) return;
+
+        await new Promise(r => setTimeout(r, Math.random() * 500 / speed));
+        
+        const isLost = Math.random() < 0.2; // 20% chance of packet loss
+        const packetId = `data-${i}`;
+
+        const senderPacketUI = document.createElement('div');
+        senderPacketUI.className = 'p-2 bg-purple-200 text-purple-800 rounded text-sm';
+        senderPacketUI.innerText = `Đã gửi Gói ${i}`;
+        senderPackets.appendChild(senderPacketUI);
+        
+        log(`[GỬI] Gói tin UDP ${i}`);
+        const dataPacket = createPacket(`DATA ${i}`, 'udp', packetId);
+        
+        if (isLost) {
+            log(`!!! Gói tin UDP ${i} đã bị mất! Bên gửi không biết điều này.`, 'error');
+            const startRect = senderDiv.getBoundingClientRect();
+            const networkRect = networkLane.getBoundingClientRect();
+            dataPacket.style.top = `${startRect.height / 2}px`;
+            dataPacket.style.left = `${startRect.left - networkRect.left + startRect.width / 2}px`;
+            networkLane.appendChild(dataPacket);
+            void dataPacket.offsetWidth;
+            dataPacket.classList.add('packet-lost');
+            await new Promise(r => setTimeout(r, 2000 / speed));
+
+        } else {
+             // Simulate out-of-order delivery with random speed
+            const randomDuration = (1500 + Math.random() * 1000) / speed;
+            dataPacket.style.transition = `all ${randomDuration / 1000}s ease-in-out`;
+            
+            const startRect = senderDiv.getBoundingClientRect();
+            const endRect = receiverDiv.getBoundingClientRect();
+            const networkRect = networkLane.getBoundingClientRect();
+            dataPacket.style.top = `${startRect.height / 2}px`;
+            dataPacket.style.left = `${startRect.left - networkRect.left + startRect.width / 2}px`;
+            networkLane.appendChild(dataPacket);
+            void dataPacket.offsetWidth;
+            dataPacket.style.left = `${endRect.left - networkRect.left + endRect.width / 2}px`;
+            
+            await new Promise(r => setTimeout(r, randomDuration));
+            log(`[NHẬN] Gói tin UDP ${i}`);
+            const receiverPacketUI = document.createElement('div');
+            receiverPacketUI.className = 'p-2 bg-green-200 text-green-800 rounded text-sm';
+            receiverPacketUI.innerText = `Đã nhận Gói ${i}`;
+            receiverPackets.appendChild(receiverPacketUI);
+        }
+    }
+    
+    await new Promise(r => setTimeout(r, 1000));
+    networkLane.innerHTML = '';
+    log('>>> Quá trình truyền UDP hoàn tất. Lưu ý các gói tin có thể bị mất hoặc sai thứ tự.');
+    isSimulating = false;
+    startBtn.disabled = false;
+    protocolSelector.disabled = false;
+}
+
+
+startBtn.addEventListener('click', () => {
+    if (isSimulating) return;
+    resetSimulation();
+    const selectedProtocol = protocolSelector.value;
+    if (selectedProtocol === 'tcp') {
+        startTCPSimulation();
+    } else {
+        startUDPSimulation();
+    }
+});
+
+resetBtn.addEventListener('click', resetSimulation);
+
+lossBtn.addEventListener('click', () => {
+    if (isSimulating && protocolSelector.value === 'tcp') {
+        log('>>> Sẽ mô phỏng mất gói tin DATA 3 trong lần gửi tiếp theo <<<', 'info');
+        simulateLoss = true;
+    } else {
+        log('Chức năng này chỉ dành cho mô phỏng TCP đang chạy.', 'error');
+    }
+});
+
+protocolSelector.addEventListener('change', () => {
+    lossBtn.style.display = protocolSelector.value === 'tcp' ? 'inline-block' : 'none';
+});
+
+speedSlider.addEventListener('input', (e) => {
+    speed = parseFloat(e.target.value);
+});
+
+// Initial state
+resetSimulation();
+lossBtn.style.display = 'inline-block';
+
+</script>
+</body>
+</html>
+
+
